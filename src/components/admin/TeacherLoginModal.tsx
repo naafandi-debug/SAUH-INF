@@ -22,7 +22,7 @@ interface TeacherLoginModalProps {
 
 export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { teacherPassword } = useApp();
-  const [username, setUsername] = useState('guru');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -55,14 +55,8 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
       }
       onSuccess();
     } else {
-      setErrorMsg('Username atau Password Guru salah. Password default adalah bukapintu19.');
+      setErrorMsg('Username atau Password Guru salah. Silakan periksa kembali.');
     }
-  };
-
-  const handleFillDemo = () => {
-    setUsername('guru');
-    setPassword(currentActivePassword);
-    setErrorMsg('');
   };
 
   return (
@@ -171,23 +165,6 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
               </button>
             </div>
           </form>
-
-          {/* Helper Credentials Box */}
-          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-            <div>
-              <div className="font-bold text-slate-700">Kredensial Login Guru:</div>
-              <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
-                User: <span className="text-indigo-600 font-bold">guru</span> • Pass: <span className="text-indigo-600 font-bold">{currentActivePassword}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
-            >
-              Isi Cepat
-            </button>
-          </div>
         </div>
       </div>
     </div>

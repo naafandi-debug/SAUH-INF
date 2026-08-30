@@ -211,7 +211,7 @@ export const AdminTeacherSecurity: React.FC = () => {
               {/* Password Saat Ini */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  1. Password Saat Ini (Default: bukapintu19)
+                  1. Password Saat Ini
                 </label>
                 <div className="relative">
                   <input
