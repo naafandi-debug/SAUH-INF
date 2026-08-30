@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Questions collection
+    match /questions/{questionId} {
+      allow read, write: if true;
+    }
+    
+    // Students collection
+    match /students/{studentId} {
+      allow read, write: if true;
+    }
+    
+    // Exams collection
+    match /exams/{examId} {
+      allow read, write: if true;
+    }
+    
+    // Exam Sessions collection
+    match /sessions/{sessionId} {
+      allow read, write: if true;
+    }
+    
+    // Anti-cheat Violations log collection
+    match /violations/{violationId} {
+      allow read, write: if true;
+    }
+
+    // Default fallback
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
