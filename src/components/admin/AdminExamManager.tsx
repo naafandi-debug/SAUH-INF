@@ -12,15 +12,16 @@ import {
   Trash2, 
   Copy, 
   ShieldCheck, 
-  Sparkles,
-  Play,
-  Pause,
-  X,
-  Check
+  Sparkles, 
+  Play, 
+  Pause, 
+  X, 
+  Check,
+  RefreshCw
 } from 'lucide-react';
 
 export const AdminExamManager: React.FC = () => {
-  const { exams, activeExam, questions, createExam, updateExam, setActiveExam } = useApp();
+  const { exams, activeExam, questions, createExam, updateExam, setActiveExam, generateExamToken } = useApp();
 
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -212,21 +213,36 @@ export const AdminExamManager: React.FC = () => {
                 </div>
 
                 {/* Token Box */}
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl flex items-center justify-between">
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Key className="w-4 h-4 text-blue-600" />
                     <span className="text-xs font-bold text-slate-700">Token Akses Siswa:</span>
-                    <span className="font-mono font-black text-sm text-blue-900 tracking-wider">
+                    <span className="font-mono font-black text-sm text-blue-900 tracking-wider bg-white px-2 py-0.5 rounded-md border border-blue-200">
                       {ex.accessCode}
                     </span>
                   </div>
-                  <button
-                    onClick={() => handleCopyToken(ex.accessCode)}
-                    className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    {copySuccess === ex.accessCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span className="text-[11px]">{copySuccess === ex.accessCode ? 'Tersalin' : 'Salin'}</span>
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Generate token acak baru untuk ulangan ini"
+                      onClick={async () => {
+                        const newToken = await generateExamToken(ex.id);
+                        handleCopyToken(newToken);
+                      }}
+                      className="p-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Generate Token</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyToken(ex.accessCode)}
+                      className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      {copySuccess === ex.accessCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span className="text-[11px]">{copySuccess === ex.accessCode ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

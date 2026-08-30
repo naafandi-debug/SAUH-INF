@@ -18,6 +18,7 @@ import { AdminExamManager } from './components/admin/AdminExamManager';
 import { AdminLiveMonitoring } from './components/admin/AdminLiveMonitoring';
 import { AdminResultsAnalysis } from './components/admin/AdminResultsAnalysis';
 import { AdminLeger } from './components/admin/AdminLeger';
+import { AdminTeacherSecurity } from './components/admin/AdminTeacherSecurity';
 import { TeacherLoginModal } from './components/admin/TeacherLoginModal';
 
 import { 
@@ -39,7 +40,8 @@ import {
   Menu,
   X,
   Lock,
-  User
+  User,
+  KeyRound
 } from 'lucide-react';
 
 function AppContent() {
@@ -129,6 +131,7 @@ function AppContent() {
     { id: 'monitoring', label: 'Live Monitoring', icon: Activity },
     { id: 'hasil-analisis', label: 'Hasil & Analisis', icon: BarChart3 },
     { id: 'leger', label: 'Leger Nilai Resmi', icon: Printer },
+    { id: 'keamanan-guru', label: 'Keamanan & Token', icon: KeyRound },
   ];
 
   // If in active student exam mode, show dedicated distraction-free exam screen
@@ -356,6 +359,7 @@ function AppContent() {
             {adminTab === 'monitoring' && <AdminLiveMonitoring />}
             {adminTab === 'hasil-analisis' && <AdminResultsAnalysis />}
             {adminTab === 'leger' && <AdminLeger />}
+            {adminTab === 'keamanan-guru' && <AdminTeacherSecurity />}
           </div>
         )}
       </div>

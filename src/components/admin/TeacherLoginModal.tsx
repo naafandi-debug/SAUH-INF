@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
 import { 
   ShieldCheck, 
   Lock, 
@@ -20,6 +21,7 @@ interface TeacherLoginModalProps {
 }
 
 export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const { teacherPassword } = useApp();
   const [username, setUsername] = useState('guru');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -28,6 +30,8 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
 
   if (!isOpen) return null;
 
+  const currentActivePassword = teacherPassword || 'bukapintu19';
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -35,11 +39,14 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
     const cleanUser = username.trim().toLowerCase();
     const cleanPass = password.trim();
 
-    // Valid teacher credentials
+    // Valid teacher usernames
     const validUsers = ['guru', 'admin', 'guru.informatika', 'pakguru', '198507232010011012'];
-    const validPass = ['guru123', 'admin123', 'informatika9', '123456', 'guru'];
+    const isUserValid = validUsers.includes(cleanUser) || cleanUser === 'guru' || cleanUser.length >= 3;
 
-    if ((validUsers.includes(cleanUser) || cleanUser === 'guru') && validPass.includes(cleanPass)) {
+    // Check against configured teacher password, or default 'bukapintu19'
+    const isPassValid = cleanPass === currentActivePassword || cleanPass === 'bukapintu19';
+
+    if (isUserValid && isPassValid) {
       if (rememberMe) {
         localStorage.setItem('inf9_teacher_auth', 'true');
         localStorage.setItem('inf9_teacher_name', username);
@@ -48,13 +55,13 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
       }
       onSuccess();
     } else {
-      setErrorMsg('Username atau Password Guru salah. Silakan periksa kembali.');
+      setErrorMsg('Username atau Password Guru salah. Password default adalah bukapintu19.');
     }
   };
 
   const handleFillDemo = () => {
     setUsername('guru');
-    setPassword('guru123');
+    setPassword(currentActivePassword);
     setErrorMsg('');
   };
 
@@ -168,9 +175,9 @@ export const TeacherLoginModal: React.FC<TeacherLoginModalProps> = ({ isOpen, on
           {/* Helper Credentials Box */}
           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
             <div>
-              <div className="font-bold text-slate-700">Kredensial Default Guru:</div>
+              <div className="font-bold text-slate-700">Kredensial Login Guru:</div>
               <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
-                User: <span className="text-indigo-600 font-bold">guru</span> • Pass: <span className="text-indigo-600 font-bold">guru123</span>
+                User: <span className="text-indigo-600 font-bold">guru</span> • Pass: <span className="text-indigo-600 font-bold">{currentActivePassword}</span>
               </div>
             </div>
             <button

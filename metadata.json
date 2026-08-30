@@ -1,6 +1,6 @@
 {
   "name": "Informatika Daily Assessment",
-  "description": "Aplikasi Ulangan Harian Informatika Kelas 9 SMP dengan Bank Soal Struktur Data & Logika, Exam Mode, Koreksi Otomatis, dan Leger Nilai.",
+  "description": "Aplikasi Ulangan Harian Informatika Kelas IX (9A-9G) dengan Login Guru Terproteksi (bukapintu19), Manajemen Password Guru, Generator Token Asesmen, Bank Soal Kurikulum Merdeka, Live Monitoring, dan Leger Nilai.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

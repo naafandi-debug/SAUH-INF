@@ -31,11 +31,16 @@ interface AppContextType {
   isFirebaseConnected: boolean;
   firebaseSyncStatus: 'synced' | 'syncing' | 'error';
   
-  // Teacher Authentication
+  // Teacher Authentication & Security
   isTeacherLoggedIn: boolean;
   teacherName: string;
+  teacherPassword: string;
   loginTeacher: (username?: string) => void;
   logoutTeacher: () => void;
+  changeTeacherPassword: (newPassword: string) => Promise<{ success: boolean; message: string }>;
+
+  // Token Generation
+  generateExamToken: (examId?: string, format?: 'standard' | 'simple' | 'prefix', customPrefix?: string) => Promise<string>;
   
   // Question management
   addQuestion: (question: Omit<Question, 'id'>) => Promise<Question>;
@@ -73,11 +78,12 @@ const STORAGE_KEYS = {
   SESSIONS: 'inf9_assessment_sessions',
   VIOLATIONS: 'inf9_assessment_violations',
   TEACHER_AUTH: 'inf9_teacher_auth',
-  TEACHER_NAME: 'inf9_teacher_name'
+  TEACHER_NAME: 'inf9_teacher_name',
+  TEACHER_PASSWORD: 'inf9_teacher_password'
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Teacher Authentication state
+  // Teacher Authentication & Security state
   const [isTeacherLoggedIn, setIsTeacherLoggedIn] = useState<boolean>(() => {
     return localStorage.getItem(STORAGE_KEYS.TEACHER_AUTH) === 'true' ||
            sessionStorage.getItem(STORAGE_KEYS.TEACHER_AUTH) === 'true';
@@ -85,6 +91,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [teacherName, setTeacherName] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEYS.TEACHER_NAME) || 'Guru Informatika';
+  });
+
+  const [teacherPassword, setTeacherPassword] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEYS.TEACHER_PASSWORD) || 'bukapintu19';
   });
 
   const loginTeacher = (user: string = 'Guru Informatika') => {
@@ -98,6 +108,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsTeacherLoggedIn(false);
     localStorage.removeItem(STORAGE_KEYS.TEACHER_AUTH);
     sessionStorage.removeItem(STORAGE_KEYS.TEACHER_AUTH);
+  };
+
+  const changeTeacherPassword = async (newPassword: string): Promise<{ success: boolean; message: string }> => {
+    const trimmed = newPassword.trim();
+    if (!trimmed || trimmed.length < 4) {
+      return { success: false, message: 'Password minimal 4 karakter.' };
+    }
+
+    setTeacherPassword(trimmed);
+    localStorage.setItem(STORAGE_KEYS.TEACHER_PASSWORD, trimmed);
+
+    try {
+      await setDoc(doc(db, 'settings', 'teacher_auth'), {
+        password: trimmed,
+        updatedAt: Date.now()
+      }, { merge: true });
+      return { success: true, message: 'Password guru berhasil diperbarui dan tersinkronisasi ke cloud.' };
+    } catch (err) {
+      console.warn('Saved locally, Firestore sync notice:', err);
+      return { success: true, message: 'Password guru berhasil diperbarui di perangkat ini.' };
+    }
+  };
+
+  // Exam Token Generator helper
+  const generateExamToken = async (
+    examId?: string, 
+    format: 'standard' | 'simple' | 'prefix' = 'standard',
+    customPrefix: string = 'INF9'
+  ): Promise<string> => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // exclude confusing chars (0, O, 1, I)
+    let randomPart = '';
+    for (let i = 0; i < 4; i++) {
+      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    let generatedToken = '';
+    if (format === 'simple') {
+      let code = '';
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      generatedToken = code;
+    } else if (format === 'prefix') {
+      const pfx = (customPrefix || 'INF9').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      generatedToken = `${pfx}-${randomPart}`;
+    } else {
+      // standard: e.g. INF9-8K2Q
+      generatedToken = `INF9-${randomPart}`;
+    }
+
+    // Determine target exam
+    const targetExam = examId ? exams.find(e => e.id === examId) : (activeExam || exams[0]);
+    if (targetExam) {
+      const updatedExam = { ...targetExam, accessCode: generatedToken, status: 'ACTIVE' as const };
+      
+      setExams(prev => prev.map(e => e.id === targetExam.id ? updatedExam : e));
+      if (activeExam?.id === targetExam.id || !activeExam) {
+        setActiveExam(updatedExam);
+      }
+
+      try {
+        await updateDoc(doc(db, 'exams', targetExam.id), { 
+          accessCode: generatedToken,
+          status: 'ACTIVE'
+        });
+      } catch (err) {
+        console.error('Failed to update token in Firestore:', err);
+      }
+    }
+
+    return generatedToken;
   };
 
   const [questions, setQuestions] = useState<Question[]>(() => {
@@ -321,6 +402,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Firestore violations listener error:', error);
     });
 
+    // 6. Subscribe to Teacher Auth Settings
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'teacher_auth'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data?.password) {
+          setTeacherPassword(data.password);
+          localStorage.setItem(STORAGE_KEYS.TEACHER_PASSWORD, data.password);
+        }
+      }
+    }, (error) => {
+      console.warn('Firestore settings listener error:', error);
+    });
+
     return () => {
       isMounted = false;
       unsubQuestions();
@@ -328,6 +422,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubExams();
       unsubSessions();
       unsubViolations();
+      unsubSettings();
     };
   }, []);
 
@@ -730,8 +825,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firebaseSyncStatus,
         isTeacherLoggedIn,
         teacherName,
+        teacherPassword,
         loginTeacher,
         logoutTeacher,
+        changeTeacherPassword,
+        generateExamToken,
         addQuestion,
         updateQuestion,
         deleteQuestion,

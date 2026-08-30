@@ -14,11 +14,12 @@ import {
   FileText, 
   Plus, 
   Upload, 
-  Printer,
-  ChevronRight,
-  ShieldAlert,
-  Activity,
-  Code2
+  Printer, 
+  ChevronRight, 
+  ShieldAlert, 
+  Activity, 
+  Code2,
+  KeyRound
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -102,6 +103,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
 
           <div className="flex flex-wrap gap-2.5">
             <button
+              onClick={() => onNavigate('keamanan-guru')}
+              className="py-2.5 px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4 text-indigo-600" />
+              Keamanan & Token
+            </button>
+            <button
               onClick={() => onNavigate('ai-generator')}
               className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-indigo-200 transition-all flex items-center gap-2 cursor-pointer"
             >
@@ -129,7 +137,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             </div>
           </div>
           <div className="text-3xl font-black text-slate-900 mt-3 font-mono">{stats.totalStudents}</div>
-          <div className="text-xs text-slate-500 mt-1">Siswa Terdaftar (9A, 9B, 9C)</div>
+          <div className="text-xs text-slate-500 mt-1">Siswa Terdaftar (9A - 9G)</div>
         </div>
 
         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs">
