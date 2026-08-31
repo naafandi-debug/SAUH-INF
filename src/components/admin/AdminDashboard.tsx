@@ -87,10 +87,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
                   <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
                   Pusat Manajemen Asesmen Informatika
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] font-bold text-emerald-700">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Cloud Firestore Real-Time
-                </div>
+                {isFirebaseConnected ? (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] font-bold text-emerald-700">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Cloud Firestore Real-Time
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 border border-blue-200 rounded-full text-[11px] font-bold text-blue-700">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    Penyimpanan Lokal Aktif
+                  </div>
+                )}
               </div>
               <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900">
                 Dashboard Guru & Evaluasi Pembelajaran

@@ -45,6 +45,7 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   });
 
   const [showSubmitModal, setShowSubmitModal] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showViolationWarning, setShowViolationWarning] = useState<string | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<'saved' | 'saving'>('saved');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(true);
@@ -203,14 +204,41 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
   };
 
   const handleFinalSubmit = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     try {
       if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
       }
     } catch (e) {}
 
-    const completed = await submitStudentExam(exam.id, student.id);
-    onFinish(completed);
+    try {
+      const completed = await submitStudentExam(exam.id, student.id, answers, session);
+      onFinish(completed);
+    } catch (err) {
+      console.warn('Submit fallback triggered:', err);
+      const totalQ = session.questions.length > 0 ? session.questions.length : (exam.totalQuestions || 20);
+      let correctCount = 0;
+      session.questions.forEach(item => {
+        const chosen = answers[item.questionId];
+        if (chosen && chosen === item.originalQuestion.correctOptionId) {
+          correctCount += 1;
+        }
+      });
+      const score = Math.round((correctCount / totalQ) * 100);
+      const fallbackCompleted: StudentExamSession = {
+        ...session,
+        answers,
+        submitted: true,
+        submittedAt: Date.now(),
+        score,
+        correctCount,
+        wrongCount: Math.max(0, totalQ - correctCount),
+        passed: score >= (exam.kkm || 75)
+      };
+      onFinish(fallbackCompleted);
+    }
   };
 
   const reEnterFullscreen = async () => {
@@ -642,11 +670,12 @@ export const StudentExamScreen: React.FC<StudentExamScreenProps> = ({
               </button>
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={handleFinalSubmit}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-indigo-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                Ya, Kirim Sekarang
+                {isSubmitting ? 'Memproses Pengiriman...' : 'Ya, Kirim Sekarang'}
               </button>
             </div>
           </div>

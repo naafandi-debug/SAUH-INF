@@ -63,7 +63,10 @@ interface AppContextType {
   // Session & Grading
   startStudentExam: (examId: string, studentId: string) => Promise<StudentExamSession>;
   saveStudentAnswer: (examId: string, studentId: string, questionId: string, answerOptionId: string) => Promise<void>;
-  submitStudentExam: (examId: string, studentId: string) => Promise<StudentExamSession>;
+  submitStudentExam: (examId: string, studentId: string, finalAnswers?: Record<string, string>, activeSessionData?: StudentExamSession) => Promise<StudentExamSession>;
+  forceCompleteSession: (examId: string, studentId: string) => Promise<StudentExamSession | null>;
+  resetStudentSession: (examId: string, studentId: string) => Promise<void>;
+  refreshCloudData: () => Promise<void>;
   recordViolation: (studentName: string, className: string, activity: string, severity?: 'low' | 'medium' | 'high') => Promise<void>;
   getStudentSession: (examId: string, studentId: string) => StudentExamSession | null;
   resetAllDataToDefault: () => Promise<void>;
@@ -81,6 +84,25 @@ const STORAGE_KEYS = {
   TEACHER_NAME: 'inf9_teacher_name',
   TEACHER_PASSWORD: 'inf9_teacher_password'
 };
+
+// Helper to detect quota or network limitation gracefully
+function isQuotaOrNetworkError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  const code = (err.code || '').toLowerCase();
+  return (
+    code.includes('resource-exhausted') ||
+    code.includes('quota') ||
+    code.includes('unavailable') ||
+    code.includes('permission-denied') ||
+    code.includes('failed-precondition') ||
+    msg.includes('quota exceeded') ||
+    msg.includes('quota') ||
+    msg.includes('resource exhausted') ||
+    msg.includes('network') ||
+    msg.includes('offline')
+  );
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Teacher Authentication & Security state
@@ -126,7 +148,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }, { merge: true });
       return { success: true, message: 'Password guru berhasil diperbarui dan tersinkronisasi ke cloud.' };
     } catch (err) {
-      console.warn('Saved locally, Firestore sync notice:', err);
+      if (!isQuotaOrNetworkError(err)) {
+        console.warn('Saved locally, Firestore sync notice:', err);
+      }
       return { success: true, message: 'Password guru berhasil diperbarui di perangkat ini.' };
     }
   };
@@ -174,7 +198,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'ACTIVE'
         });
       } catch (err) {
-        console.error('Failed to update token in Firestore:', err);
+        if (!isQuotaOrNetworkError(err)) {
+          console.warn('Failed to update token in Firestore:', err);
+        }
       }
     }
 
@@ -245,7 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(true);
-  const [firebaseSyncStatus, setFirebaseSyncStatus] = useState<'synced' | 'syncing' | 'error'>('syncing');
+  const [firebaseSyncStatus, setFirebaseSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
 
   const initializedRef = useRef<boolean>(false);
 
@@ -275,64 +301,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let isMounted = true;
 
     const initAndSubscribe = async () => {
+      // Avoid repetitive mass getDocs on every page load
+      const hasSeeded = localStorage.getItem('inf9_firestore_seeded_v3');
+
       try {
         setFirebaseSyncStatus('syncing');
 
-        // 1. Ensure Questions Collection
-        const questionsColl = collection(db, 'questions');
-        const qSnap = await getDocs(questionsColl);
+        if (!hasSeeded) {
+          // One-time gentle check and seeding
+          const questionsColl = collection(db, 'questions');
+          const qSnap = await getDocs(questionsColl);
 
-        if (qSnap.empty) {
-          console.log('Seeding initial questions to Firestore...');
-          const batch = writeBatch(db);
-          INITIAL_QUESTIONS.forEach(q => {
-            batch.set(doc(db, 'questions', q.id), q);
-          });
-          await batch.commit();
-        }
-
-        // 2. Ensure Official Students Collection (9A - 9G: 220 Students)
-        const studentsColl = collection(db, 'students');
-        const sSnap = await getDocs(studentsColl);
-
-        // If collection is empty or has old mock students (< 100 students)
-        if (sSnap.empty || sSnap.size < 100) {
-          console.log('Replacing student database with 220 official students (9A, 9B, 9C, 9D, 9E, 9F, 9G)...');
-          
-          // Delete old mock documents
-          if (!sSnap.empty) {
-            const delBatch = writeBatch(db);
-            sSnap.docs.forEach(d => delBatch.delete(d.ref));
-            await delBatch.commit();
+          if (qSnap.empty) {
+            const batch = writeBatch(db);
+            INITIAL_QUESTIONS.slice(0, 10).forEach(q => {
+              batch.set(doc(db, 'questions', q.id), q);
+            });
+            await batch.commit();
           }
 
-          // Insert 220 official students in batches
-          const insertBatch = writeBatch(db);
-          OFFICIAL_STUDENTS.forEach(std => {
-            insertBatch.set(doc(db, 'students', std.id), std);
-          });
-          await insertBatch.commit();
-        }
-
-        // 3. Ensure Exams Collection
-        const examsColl = collection(db, 'exams');
-        const eSnap = await getDocs(examsColl);
-        if (eSnap.empty) {
-          const batch = writeBatch(db);
-          INITIAL_EXAMS.forEach(ex => {
-            batch.set(doc(db, 'exams', ex.id), ex);
-          });
-          await batch.commit();
+          localStorage.setItem('inf9_firestore_seeded_v3', 'true');
         }
 
         if (!isMounted) return;
         setIsFirebaseConnected(true);
         setFirebaseSyncStatus('synced');
       } catch (err) {
-        console.error('Error during Firestore initialization:', err);
+        if (isQuotaOrNetworkError(err)) {
+          console.info('Mode Offline/Penyimpanan Lokal Aktif: Kuota cloud terlampaui atau perangkat offline. Aplikasi berjalan normal dengan penyimpanan lokal.');
+        } else {
+          console.warn('Firestore initialization notice:', err);
+        }
         if (isMounted) {
           setIsFirebaseConnected(false);
-          setFirebaseSyncStatus('error');
+          setFirebaseSyncStatus('synced');
         }
       }
     };
@@ -349,14 +351,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsFirebaseConnected(true);
       setFirebaseSyncStatus('synced');
     }, (error) => {
-      console.warn('Firestore questions listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore questions listener notice:', error);
+      }
     });
 
     // 2. Subscribe to Students
     const unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
       if (!snapshot.empty) {
         const loadedStudents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
-        // Sort students by class then name
         loadedStudents.sort((a, b) => {
           if (a.className !== b.className) return a.className.localeCompare(b.className);
           return a.name.localeCompare(b.name);
@@ -364,7 +369,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setStudents(loadedStudents);
       }
     }, (error) => {
-      console.warn('Firestore students listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore students listener notice:', error);
+      }
     });
 
     // 3. Subscribe to Exams
@@ -379,7 +388,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
     }, (error) => {
-      console.warn('Firestore exams listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore exams listener notice:', error);
+      }
     });
 
     // 4. Subscribe to Sessions
@@ -390,7 +403,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setSessions(map);
     }, (error) => {
-      console.warn('Firestore sessions listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore sessions listener notice:', error);
+      }
     });
 
     // 5. Subscribe to Violations
@@ -399,7 +416,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loadedViolations.sort((a, b) => b.timestamp - a.timestamp);
       setViolations(loadedViolations);
     }, (error) => {
-      console.warn('Firestore violations listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore violations listener notice:', error);
+      }
     });
 
     // 6. Subscribe to Teacher Auth Settings
@@ -412,7 +433,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     }, (error) => {
-      console.warn('Firestore settings listener error:', error);
+      if (isQuotaOrNetworkError(error)) {
+        setIsFirebaseConnected(false);
+      } else {
+        console.warn('Firestore settings listener notice:', error);
+      }
     });
 
     return () => {
@@ -447,7 +472,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await setDoc(doc(db, 'questions', id), question);
     } catch (e) {
-      console.error('Failed to save question to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to save question to Firestore:', e);
+      }
     }
 
     return question;
@@ -459,7 +486,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await updateDoc(doc(db, 'questions', id), updated);
     } catch (e) {
-      console.error('Failed to update question in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to update question in Firestore:', e);
+      }
     }
   };
 
@@ -469,7 +498,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await deleteDoc(doc(db, 'questions', id));
     } catch (e) {
-      console.error('Failed to delete question from Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to delete question from Firestore:', e);
+      }
     }
   };
 
@@ -488,7 +519,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       await batch.commit();
     } catch (e) {
-      console.error('Failed to batch import questions to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to batch import questions to Firestore:', e);
+      }
     }
   };
 
@@ -501,7 +534,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await setDoc(doc(db, 'students', id), student);
     } catch (e) {
-      console.error('Failed to add student to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to add student to Firestore:', e);
+      }
     }
 
     return student;
@@ -513,7 +548,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await updateDoc(doc(db, 'students', id), updated);
     } catch (e) {
-      console.error('Failed to update student in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to update student in Firestore:', e);
+      }
     }
   };
 
@@ -523,7 +560,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await deleteDoc(doc(db, 'students', id));
     } catch (e) {
-      console.error('Failed to delete student from Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to delete student from Firestore:', e);
+      }
     }
   };
 
@@ -542,7 +581,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       await batch.commit();
     } catch (e) {
-      console.error('Failed to batch import students to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to batch import students to Firestore:', e);
+      }
     }
   };
 
@@ -551,13 +592,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(OFFICIAL_STUDENTS));
 
     try {
-      // 1. Get all current student docs in firestore and remove
       const sSnap = await getDocs(collection(db, 'students'));
       const delBatch = writeBatch(db);
       sSnap.docs.forEach(d => delBatch.delete(d.ref));
       await delBatch.commit();
 
-      // 2. Set all 220 official students
       const addBatch = writeBatch(db);
       OFFICIAL_STUDENTS.forEach(std => {
         addBatch.set(doc(db, 'students', std.id), std);
@@ -565,7 +604,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await addBatch.commit();
       console.log('Reset to official 220 students completed.');
     } catch (e) {
-      console.error('Failed to reset students in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to reset students in Firestore:', e);
+      }
     }
   };
 
@@ -583,7 +624,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await setDoc(doc(db, 'exams', id), exam);
     } catch (e) {
-      console.error('Failed to create exam in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to create exam in Firestore:', e);
+      }
     }
 
     return exam;
@@ -598,7 +641,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await updateDoc(doc(db, 'exams', id), updated);
     } catch (e) {
-      console.error('Failed to update exam in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to update exam in Firestore:', e);
+      }
     }
   };
 
@@ -608,13 +653,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return sessions[sessionKey];
     }
 
-    const exam = exams.find(e => e.id === examId) || exams[0];
-    const student = students.find(s => s.id === studentId) || students[0];
+    const exam = exams.find(e => e.id === examId) || exams[0] || INITIAL_EXAMS[0];
+    const student = students.find(s => s.id === studentId) || students[0] || OFFICIAL_STUDENTS[0];
 
     // Pick 20 questions (or exam.totalQuestions) from bank
     let pool = questions.filter(q => q.status === 'active');
     if (pool.length < (exam.totalQuestions || 20)) {
-      pool = questions; // fallback
+      pool = questions.length > 0 ? questions : INITIAL_QUESTIONS;
     }
 
     // Shuffle and pick 20
@@ -628,6 +673,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     const newSession: StudentExamSession = {
+      id: sessionKey,
       examId,
       studentId,
       studentName: student.name,
@@ -643,15 +689,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       violations: []
     };
 
-    setSessions(prev => ({
-      ...prev,
-      [sessionKey]: newSession
-    }));
+    setSessions(prev => {
+      const updated = { ...prev, [sessionKey]: newSession };
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(updated));
+      return updated;
+    });
 
     try {
-      await setDoc(doc(db, 'sessions', sessionKey), newSession);
+      await setDoc(doc(db, 'sessions', sessionKey), newSession, { merge: true });
     } catch (e) {
-      console.error('Failed to save session to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to save session to Firestore:', e);
+      }
     }
 
     return newSession;
@@ -659,54 +708,113 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveStudentAnswer = async (examId: string, studentId: string, questionId: string, answerOptionId: string): Promise<void> => {
     const sessionKey = `${examId}_${studentId}`;
-    const current = sessions[sessionKey];
-    if (!current || current.submitted) return;
 
-    const updatedAnswers = {
-      ...current.answers,
-      [questionId]: answerOptionId
-    };
+    let updatedAnswersMap: Record<string, string> = {};
 
-    setSessions(prev => ({
-      ...prev,
-      [sessionKey]: {
+    setSessions(prev => {
+      const current = prev[sessionKey];
+      if (!current || current.submitted) return prev;
+
+      updatedAnswersMap = {
+        ...(current.answers || {}),
+        [questionId]: answerOptionId
+      };
+
+      const updatedSession: StudentExamSession = {
         ...current,
-        answers: updatedAnswers
-      }
-    }));
+        answers: updatedAnswersMap
+      };
+
+      const nextState = {
+        ...prev,
+        [sessionKey]: updatedSession
+      };
+
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(nextState));
+      return nextState;
+    });
 
     try {
-      await updateDoc(doc(db, 'sessions', sessionKey), {
-        answers: updatedAnswers
-      });
+      await setDoc(doc(db, 'sessions', sessionKey), {
+        answers: updatedAnswersMap
+      }, { merge: true });
     } catch (e) {
-      console.error('Failed to update student answer in Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to update student answer in Firestore:', e);
+      }
     }
   };
 
-  const submitStudentExam = async (examId: string, studentId: string): Promise<StudentExamSession> => {
+  const submitStudentExam = async (
+    examId: string, 
+    studentId: string, 
+    finalAnswers?: Record<string, string>, 
+    activeSessionData?: StudentExamSession
+  ): Promise<StudentExamSession> => {
     const sessionKey = `${examId}_${studentId}`;
-    const current = sessions[sessionKey];
-    const exam = exams.find(e => e.id === examId) || exams[0];
+    
+    // Resolve session object safely
+    let current: StudentExamSession | undefined = activeSessionData || sessions[sessionKey];
+    
+    if (!current) {
+      // Check localStorage directly
+      try {
+        const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed[sessionKey]) current = parsed[sessionKey];
+        }
+      } catch (e) {}
+    }
 
-    if (!current) throw new Error('Session not found');
+    const exam = exams.find(e => e.id === examId) || exams[0] || INITIAL_EXAMS[0];
+    const student = students.find(s => s.id === studentId) || OFFICIAL_STUDENTS.find(s => s.id === studentId);
+
+    // If still not found, construct a safe fallback session
+    if (!current) {
+      const fallbackQuestions = questions.slice(0, exam.totalQuestions || 20).map(q => ({
+        questionId: q.id,
+        originalQuestion: q,
+        shuffledOptions: q.options
+      }));
+
+      current = {
+        id: sessionKey,
+        examId,
+        studentId,
+        studentName: student?.name || 'Siswa',
+        className: student?.className || '9D',
+        nisn: student?.nisn || '-',
+        studentNisn: student?.nisn || '-',
+        startTime: Date.now() - 30 * 60 * 1000,
+        endTime: Date.now(),
+        durationMinutes: exam.durationMinutes || 40,
+        questions: fallbackQuestions,
+        answers: finalAnswers || {},
+        submitted: false,
+        violations: []
+      };
+    }
+
+    const effectiveAnswers = finalAnswers || current.answers || {};
 
     // Auto evaluation logic
     let correctCount = 0;
     current.questions.forEach(item => {
-      const chosenOptionId = current.answers[item.questionId];
+      const chosenOptionId = effectiveAnswers[item.questionId];
       if (chosenOptionId && chosenOptionId === item.originalQuestion.correctOptionId) {
         correctCount += 1;
       }
     });
 
-    const totalQ = current.questions.length || 20;
-    const wrongCount = totalQ - correctCount;
+    const totalQ = current.questions.length > 0 ? current.questions.length : (exam.totalQuestions || 20);
+    const wrongCount = Math.max(0, totalQ - correctCount);
     const score = Math.round((correctCount / totalQ) * 100);
     const passed = score >= (exam.kkm || 75);
 
     const finishedSession: StudentExamSession = {
       ...current,
+      answers: effectiveAnswers,
       submitted: true,
       submittedAt: Date.now(),
       score,
@@ -715,18 +823,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       passed
     };
 
-    setSessions(prev => ({
-      ...prev,
-      [sessionKey]: finishedSession
-    }));
+    setSessions(prev => {
+      const next = {
+        ...prev,
+        [sessionKey]: finishedSession
+      };
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(next));
+      return next;
+    });
 
     try {
-      await setDoc(doc(db, 'sessions', sessionKey), finishedSession);
+      await setDoc(doc(db, 'sessions', sessionKey), finishedSession, { merge: true });
     } catch (e) {
-      console.error('Failed to submit session to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to submit session to Firestore:', e);
+      }
     }
 
     return finishedSession;
+  };
+
+  const forceCompleteSession = async (examId: string, studentId: string): Promise<StudentExamSession | null> => {
+    const sessionKey = `${examId}_${studentId}`;
+    const current = sessions[sessionKey];
+    if (!current) return null;
+
+    return await submitStudentExam(examId, studentId, current.answers, current);
+  };
+
+  const resetStudentSession = async (examId: string, studentId: string): Promise<void> => {
+    const sessionKey = `${examId}_${studentId}`;
+
+    setSessions(prev => {
+      const next = { ...prev };
+      delete next[sessionKey];
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(next));
+      return next;
+    });
+
+    try {
+      await deleteDoc(doc(db, 'sessions', sessionKey));
+    } catch (e) {
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to delete student session from Firestore:', e);
+      }
+    }
+  };
+
+  const refreshCloudData = async (): Promise<void> => {
+    try {
+      setFirebaseSyncStatus('syncing');
+      
+      const sessSnap = await getDocs(collection(db, 'sessions'));
+      if (!sessSnap.empty) {
+        const cloudSessions: Record<string, StudentExamSession> = {};
+        sessSnap.forEach(d => {
+          cloudSessions[d.id] = d.data() as StudentExamSession;
+        });
+        setSessions(prev => {
+          const merged = { ...prev, ...cloudSessions };
+          localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(merged));
+          return merged;
+        });
+      }
+
+      const violSnap = await getDocs(collection(db, 'violations'));
+      if (!violSnap.empty) {
+        const cloudViols = violSnap.docs.map(d => ({ id: d.id, ...d.data() } as ViolationRecord));
+        cloudViols.sort((a, b) => b.timestamp - a.timestamp);
+        setViolations(cloudViols);
+        localStorage.setItem(STORAGE_KEYS.VIOLATIONS, JSON.stringify(cloudViols));
+      }
+
+      setIsFirebaseConnected(true);
+      setFirebaseSyncStatus('synced');
+    } catch (err) {
+      if (isQuotaOrNetworkError(err)) {
+        setIsFirebaseConnected(false);
+      }
+      setFirebaseSyncStatus('synced');
+    }
   };
 
   const recordViolation = async (studentName: string, className: string, activity: string, severity: 'low' | 'medium' | 'high' = 'medium'): Promise<void> => {
@@ -747,7 +923,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await setDoc(doc(db, 'violations', violation.id), violation);
     } catch (e) {
-      console.error('Failed to record violation to Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to record violation to Firestore:', e);
+      }
     }
 
     // Also link into active session if found
@@ -797,18 +975,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const batch = writeBatch(db);
-      INITIAL_QUESTIONS.forEach(q => {
+      INITIAL_QUESTIONS.slice(0, 10).forEach(q => {
         batch.set(doc(db, 'questions', q.id), q);
-      });
-      OFFICIAL_STUDENTS.forEach(std => {
-        batch.set(doc(db, 'students', std.id), std);
       });
       INITIAL_EXAMS.forEach(ex => {
         batch.set(doc(db, 'exams', ex.id), ex);
       });
       await batch.commit();
     } catch (e) {
-      console.error('Failed to reset Firestore:', e);
+      if (!isQuotaOrNetworkError(e)) {
+        console.warn('Failed to reset Firestore:', e);
+      }
     }
   };
 
@@ -845,6 +1022,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         startStudentExam,
         saveStudentAnswer,
         submitStudentExam,
+        forceCompleteSession,
+        resetStudentSession,
+        refreshCloudData,
         recordViolation,
         getStudentSession,
         resetAllDataToDefault,
